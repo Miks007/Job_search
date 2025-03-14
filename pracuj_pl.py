@@ -14,11 +14,11 @@ from datetime import datetime
 import os
 import random
 import sys
-from typing import Dict, Type, TypeVar, Optional
+from typing import Dict
 from datetime import datetime
-import json
 from pydantic import BaseModel, Field
 from utils.parse_json_to_model import parse_json_to_model
+from utils.send_email import send_email
 
 BASE_PATH = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
 CONFIG_PATH = os.path.join(BASE_PATH, 'config.ini')
@@ -44,7 +44,11 @@ class Config:
         self.KEYWORD = self.get_config('JOB', 'KEYWORD')
         self.CITY = self.get_config('JOB', 'CITY')
         self.DISTANCE = self.get_config('JOB', 'DISTANCE')
+        self.SENDER_EMAIL = self.get_config('EMAIL', 'SENDER_EMAIL')
+        self.SENDER_PASSWORD = self.get_config('EMAIL', 'SENDER_PASSWORD')
+        self.RECIPIENT_EMAIL = self.get_config('EMAIL', 'RECIPIENT_EMAIL')
         
+
         # Decrypt the credentials
         #try:
             #cipher_suite = Fernet(CRYPTO_KEY)
@@ -153,7 +157,6 @@ def scrapp_offers(driver, month_mapping):
     df['date_scraped'] = datetime.now().strftime('%d-%m-%Y')
     return df
 
-
 def set_up_logging():
     os.makedirs('logs', exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -198,6 +201,13 @@ def main():
     df.to_excel(OUTPUT_FILE, index=False, engine='openpyxl')
     print('Offers saved to excel')
 
+    subject = f"New offers for {config.KEYWORD}!  [{datetime.now().strftime('%d-%m-%Y')}]"
+    body = f"Please find the attached offers from Pracuj.pl for {config.KEYWORD} in {config.CITY} within {config.DISTANCE} km"
+
+    # Send email with attachment
+    send_email(config.SENDER_EMAIL, config.SENDER_PASSWORD, config.RECIPIENT_EMAIL, subject, body, attachment_path = None)
+    #send_email(config.SENDER_EMAIL, config.SENDER_PASSWORD, config.RECIPIENT_EMAIL, subject, body, attachment_path = OUTPUT_FILE)
+    
 if __name__ == "__main__":
     main()
 
