@@ -5,12 +5,10 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from bs4 import BeautifulSoup
 import configparser
 import time
 import pandas as pd
 import logging
-from datetime import datetime
 import os
 import random
 import sys
@@ -20,12 +18,20 @@ from pydantic import BaseModel, Field
 from utils.parse_json_to_model import parse_json_to_model
 from utils.send_email import send_email
 
+# TODO:
+# - CREATE A MASTER SCRIPT THAT WILL RUN THIS SCRIPT AND THE OTHER ONES.
+# - move email sending to the master script
+# - add error handling
+# - add check for max page number and limit the number of pages to scrape
+# - add logging
+
 BASE_PATH = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
 CONFIG_PATH = os.path.join(BASE_PATH, 'config.ini')
 LOG_DIR_PATH = os.path.join(BASE_PATH, 'logs')
 DRIVER_PATH = os.path.join(BASE_PATH, 'chromedriver.exe')
-OUTPUT_FILE = os.path.join(BASE_PATH, 'offers_pracuj_pl.xlsx')
-MONTH_MAPPING_PATH = os.path.join(BASE_PATH, 'month_mapping.json')
+PRACUJ_PL_FILE = os.path.join(BASE_PATH, 'data', 'offers_pracuj_pl.xlsx')
+NEW_OFFERS_FILE = os.path.join(BASE_PATH, 'data', 'new_offers.xlsx')
+MONTH_MAPPING_PATH = os.path.join(BASE_PATH, 'resources', 'month_mapping.json')
 
 class Language(BaseModel):
     name: str
@@ -48,7 +54,6 @@ class Config:
         self.SENDER_PASSWORD = self.get_config('EMAIL', 'SENDER_PASSWORD')
         self.RECIPIENT_EMAIL = self.get_config('EMAIL', 'RECIPIENT_EMAIL')
         
-
         # Decrypt the credentials
         #try:
             #cipher_suite = Fernet(CRYPTO_KEY)
@@ -75,17 +80,17 @@ def load_config(config_path=CONFIG_PATH):
         error_msg = f"Error during reading config.ini file: {e}"
         raise KeyError(error_msg)
 
-def read_last_date_scraped(file_path):
+def read_old_data(file_path=None):
+    if file_path is None:
+        return None, datetime.now().strftime('%d-%m-%Y')
     df = pd.read_excel(file_path)
     df['date_scraped'] = pd.to_datetime(df['date_scraped'])
     max_date_scraped = df['date_scraped'].max()
-    return max_date_scraped
+    return df, max_date_scraped
 
 def setup_driver():
     webdriver_path = DRIVER_PATH
-
     service = Service(webdriver_path)
-
     options = Options()
     #options.add_argument("--headless")
 
@@ -97,8 +102,6 @@ def click_cookie_button(driver):
     button = driver.find_element(By.XPATH, "//button[@data-test='button-submitCookie']")
     button.click()
     print('Cookie button clicked')
-
-## ----------------------------------------- OFFERS -----------------------------------------  
 
 def read_month_mapping(file_path):
     with open(file_path, 'r') as file:
@@ -126,7 +129,7 @@ def scrapp_offers(driver, month_mapping):
             company_tag = offer.find("h3", {"data-test": "text-company-name"})
             location_tag = offer.find("h4", {"data-test": "text-region"})
             salary_tag = offer.find("span", {"data-test": "offer-salary"})
-            date_tag = offer.find("p", {"data-test": "text-added"})  # Extracts the posting date
+            date_tag = offer.find("p", {"data-test": "text-added"})  #//
 
             title = title_tag.text.strip() if title_tag else None
             title_link = title_tag.find("a")["href"] if title_tag and title_tag.find("a") else None
@@ -137,7 +140,7 @@ def scrapp_offers(driver, month_mapping):
             
             if date_tag:
                 raw_date = date_tag.text.replace("Opublikowana: ", "").strip()
-                date_posted = convert_date(raw_date, month_mapping)
+                date_posted = datetime.strptime(convert_date(raw_date, month_mapping), '%d-%m-%Y')
             else:
                 date_posted = None
 
@@ -157,10 +160,10 @@ def scrapp_offers(driver, month_mapping):
     df['date_scraped'] = datetime.now().strftime('%d-%m-%Y')
     return df
 
-def set_up_logging():
-    os.makedirs('logs', exist_ok=True)
+def set_up_logging(log_dir_path):
+    os.makedirs(log_dir_path, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = f'logs/pracuj_pl_{timestamp}.log'
+    log_file = f'{log_dir_path}/pracuj_pl_{timestamp}.log'
     
     logging.basicConfig(
         level=logging.INFO,
@@ -174,7 +177,7 @@ def set_up_logging():
     return logger
 
 def main():
-    # logger = set_up_logging()
+    # logger = set_up_logging(log_dir_path)
     # logger.info("Setting up driver...")
     try:
         config = load_config()
@@ -185,29 +188,57 @@ def main():
     driver = setup_driver()
     df = pd.DataFrame()
     month_mapping = read_month_mapping(MONTH_MAPPING_PATH)
-    for i in range(1, 3):
+    
+    df_old_data, last_date_scraped = read_old_data(PRACUJ_PL_FILE)
+    offers_max_date = last_date_scraped
+    i = 1
+    while offers_max_date >= last_date_scraped:
         URL = f"https://www.pracuj.pl/praca/{config.KEYWORD};kw/{config.CITY};wp?rd={config.DISTANCE}&pn={i}"
         driver.get(URL)
+        
         if i == 1:
             click_cookie_button(driver)
+            
         time.sleep(random.randint(3, 5))
+        
         df_offers = scrapp_offers(driver, month_mapping)
+        if df_offers.empty:
+            print("No more offers found")
+            break
+            
         df = pd.concat([df, df_offers])
+        offers_max_date = df_offers['date_posted'].max()
+        i += 1
         time.sleep(random.randint(1, 3))
+        
     driver.quit()
     
+    print('Deduplicating offers...')
+    if df_old_data is not None and not df_old_data.empty:
+        df_old_data = pd.concat([df_old_data, df])
+        df_new = df[~df['job_link'].isin(df_old_data['job_link'])]
+        df = df_old_data.drop_duplicates(subset=['job_link'])
+    else:
+        df_new = df
+    
     print('Saving offers to excel...')
+
+    os.makedirs(os.path.dirname(PRACUJ_PL_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(NEW_OFFERS_FILE), exist_ok=True)
+    
     # Save DataFrame to Excel in the base directory
-    df.to_excel(OUTPUT_FILE, index=False, engine='openpyxl')
+    df.to_excel(PRACUJ_PL_FILE, index=False, engine='openpyxl')
+    df_new.to_excel(NEW_OFFERS_FILE, index=False, engine='openpyxl')
     print('Offers saved to excel')
 
-    subject = f"New offers for {config.KEYWORD}!  [{datetime.now().strftime('%d-%m-%Y')}]"
-    body = f"Please find the attached offers from Pracuj.pl for {config.KEYWORD} in {config.CITY} within {config.DISTANCE} km"
+    if not df_new.empty:
+        subject = f"New offers for {config.KEYWORD}!  [{datetime.now().strftime('%d-%m-%Y')}]"
+        body = f"Please find the attached offers from Pracuj.pl for {config.KEYWORD} in {config.CITY} within {config.DISTANCE} km"
 
-    # Send email with attachment
-    send_email(config.SENDER_EMAIL, config.SENDER_PASSWORD, config.RECIPIENT_EMAIL, subject, body, attachment_path = None)
-    #send_email(config.SENDER_EMAIL, config.SENDER_PASSWORD, config.RECIPIENT_EMAIL, subject, body, attachment_path = OUTPUT_FILE)
-    
+        # Send email with attachment
+        #send_email(config.SENDER_EMAIL, config.SENDER_PASSWORD, config.RECIPIENT_EMAIL, subject, body, attachment_path = PRACUJ_PL_FILE)
+        #send_email(config.SENDER_EMAIL, config.SENDER_PASSWORD, config.RECIPIENT_EMAIL, subject, body, attachment_path = NEW_OFFERS_FILE)
+        
 if __name__ == "__main__":
     main()
 

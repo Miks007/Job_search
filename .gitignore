@@ -1,6 +1,11 @@
 chromedriver.exe
-logs/
-offers_pracuj_pl.xlsx
-pracuj_pl.ipynb
+
 pycache/
 __pycache__/
+logs/
+
+
+offers_pracuj_pl.xlsx
+new_offers.xlsx
+
+pracuj_pl.ipynb

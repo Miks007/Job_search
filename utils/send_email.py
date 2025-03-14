@@ -58,9 +58,3 @@ def send_email(sender_email: str, sender_password: str, recipient_email: str, su
     except Exception as e:
         print(f"Failed to send email: {str(e)}")
         return False
-
-def send_email_new_offers(keyword, city, distance, portal):
-    subject = f"New offers for {keyword}!  [{datetime.now().strftime('%d-%m-%Y')}]"
-    body = f"Please find the attached offers from {portal} for {keyword} in {city} within {distance} km"
-    attachment_path = OUTPUT_FILE
-    send_email(sender_email, sender_password, recipient_email, subject, body, attachment_path)
