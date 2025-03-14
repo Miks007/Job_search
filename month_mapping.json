@@ -1,0 +1,38 @@
+{
+    "languages": {
+        "pl": {
+            "name": "Polski",
+            "months": {
+                "stycznia": "01",
+                "lutego": "02",
+                "marca": "03",
+                "kwietnia": "04",
+                "maja": "05",
+                "czerwca": "06",
+                "lipca": "07",
+                "sierpnia": "08",
+                "września": "09",
+                "października": "10",
+                "listopada": "11",
+                "grudnia": "12"
+            }
+        },
+        "en": {
+            "name": "English",
+            "months": {
+                "january": "01",
+                "february": "02",
+                "march": "03",
+                "april": "04",
+                "may": "05",
+                "june": "06",
+                "july": "07",
+                "august": "08",
+                "september": "09",
+                "october": "10",
+                "november": "11",
+                "december": "12"
+            }
+        }
+    }
+}

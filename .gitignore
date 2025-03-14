@@ -1,0 +1,6 @@
+chromedriver.exe
+logs/
+offers_pracuj_pl.xlsx
+pracuj_pl.ipynb
+pycache/
+__pycache__/

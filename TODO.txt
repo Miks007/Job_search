@@ -1,0 +1,13 @@
+1. Scrapp these websites:
+- Pracuj pl (Inprogress)
+- praca pl 
+- olx
+
+later on:
+- justjoinit
+- nofluffjobs
+
+
+- scrapp more detailed info about jobs
+- Improve date mapping (add language recognition)
+- Data deduplication
