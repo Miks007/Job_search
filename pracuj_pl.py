@@ -1,10 +1,6 @@
 from bs4 import BeautifulSoup
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import configparser
 import time
 import pandas as pd
@@ -16,6 +12,9 @@ from typing import Dict
 from datetime import datetime
 from pydantic import BaseModel, Field
 from utils.parse_json_to_model import parse_json_to_model
+from utils.logging import set_up_logging, delete_old_logs
+from utils.set_up_driver import setup_driver
+from utils.read_previous_data import read_previous_data
 from utils.send_email import send_email
 
 RETENTION_DAYS = 30
@@ -78,32 +77,6 @@ def load_config(config_path=CONFIG_PATH):
     except Exception as e:
         error_msg = f"Error during reading config.ini file: {e}"
         raise KeyError(error_msg)
-
-def read_old_data(file_path=None):
-    """Reads previously scraped offers from the specified file path."""
-    try:
-        if file_path is None or not os.path.exists(file_path):
-            return None, datetime.now()
-        df = pd.read_excel(file_path)
-        df['date_scraped'] = pd.to_datetime(df['date_scraped'])
-        max_date_scraped = df['date_scraped'].max()
-        return df, max_date_scraped
-    except Exception as e:
-        error_msg = f"Error during reading old data: {e}"
-        raise Exception(error_msg)
-
-def setup_driver():
-    try:
-        webdriver_path = DRIVER_PATH
-        service = Service(webdriver_path)
-        options = Options()
-        #options.add_argument("--headless")
-
-        driver = webdriver.Chrome(service=service, options=options)
-        return driver
-    except Exception as e:
-        error_msg = f"Error during setting up the driver: {e}"
-        raise Exception(error_msg)
 
 def click_cookie_button(driver):
     try:
@@ -200,50 +173,18 @@ def scrape_offers(driver: webdriver.Chrome, month_mapping: MonthMapping) -> pd.D
     df['date_scraped'] = datetime.now()
     return df
 
-def set_up_logging(log_dir_path):
-    os.makedirs(log_dir_path, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = f'{log_dir_path}/pracuj_pl_{timestamp}.log'
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()  
-        ]
-    )
-    logger = logging.getLogger(__name__)
-    return logger
-
-def delete_old_logs(log_dir_path):
-    try:
-        current_time = datetime.now()
-        for file in os.listdir(log_dir_path):
-            if file.endswith('.log'):
-                file_path = os.path.join(log_dir_path, file)
-                file_time = datetime.fromtimestamp(os.path.getctime(file_path))
-                age_days = (current_time - file_time).days
-            
-            if age_days > RETENTION_DAYS:
-                    os.remove(file_path)
-                    logging.info(f"Deleted log file {file} - {age_days} days old")
-    except Exception as e:
-        error_msg = f"Error during deleting old logs: {e}"
-        raise Exception(error_msg)
-
 def main():
     logger = set_up_logging(LOG_DIR_PATH)
-    delete_old_logs(LOG_DIR_PATH)
+    delete_old_logs(LOG_DIR_PATH, RETENTION_DAYS)
     
     logger.info("Starting job scraping process...")
     driver = None
 
     try:
         config = load_config()
-        driver = setup_driver()
+        driver = setup_driver(DRIVER_PATH)
         month_mapping = read_month_mapping(MONTH_MAPPING_PATH)
-        df_old_data, last_date_scraped = read_old_data(PRACUJ_PL_FILE)
+        df_old_data, last_date_scraped = read_previous_data(PRACUJ_PL_FILE)
         
         page = 1
         max_page_number = None
