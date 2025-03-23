@@ -4,9 +4,6 @@ pycache/
 __pycache__/
 logs/
 
+scrapping.ipynb
 
-offers_pracuj_pl.xlsx
-new_offers_pracuj_pl.xlsx
-new_offers.xlsx
-
-pracuj_pl.ipynb
+data/

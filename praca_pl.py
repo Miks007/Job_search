@@ -9,7 +9,7 @@ import os
 import random
 import sys
 from typing import Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from utils.parse_json_to_model import parse_json_to_model
 from utils.logging import set_up_logging, delete_old_logs
@@ -20,7 +20,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 RETENTION_DAYS = 30
-PORTAL_NAME = 'pracuj_pl'
+PORTAL_NAME = 'praca_pl'
+
 # TODO:
 # - CREATE A MASTER SCRIPT THAT WILL RUN THIS SCRIPT AND THE OTHER ONES.
 # - move email sending to the master script
@@ -83,29 +84,23 @@ def load_config(config_path=CONFIG_PATH):
 def click_cookie_button(driver):
     try:
         logging.info('Clicking cookie button...')
-        button = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//button[@data-test='button-submitCookie']")))
-        button.click()
+        coockie_button = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//*[@id="cookiesPopup"]/div/div/div[2]/button[1]')))
+        coockie_button.click()
         logging.info('Cookie button clicked')
     except Exception as e:
         error_msg = f"Error during clicking cookie button: {e}"
         raise Exception(error_msg)
 
-def read_month_mapping(file_path):
+def convert_date(date_str, now):
     try:
-        with open(file_path, 'r') as file:
-            month_mapping = parse_json_to_model(file_path, MonthMapping)
-        return month_mapping
-    except Exception as e:
-        error_msg = f"Error during reading month mapping: {e}"
-        raise Exception(error_msg)
-
-def convert_date(date_str, month_mapping):
-    try:
-        parts = date_str.split()
-        if len(parts) == 3:  # Ensure the format is correct
-            day, month, year = parts
-        month_num = month_mapping.languages['pl'].months.get(month.lower(), "00")  # Get month number
-        return f"{day}-{month_num}-{year}"  # Return in dd-mm-yyyy format
+        if 'godz.' in date_str:
+            hours = int(date_str.split()[0])
+            return now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=hours)
+        elif 'dni' in date_str:
+            days = int(date_str.split()[0])
+            return now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days)
+        else:   
+            return None
     except Exception as e:
         error_msg = f"Error during converting date: {e}"
         raise Exception(error_msg)
@@ -114,18 +109,20 @@ def read_max_page_number(driver):
     try:
         html = driver.page_source
         soup = BeautifulSoup(html, "html.parser")
-        max_page_number = soup.find("span", {"data-test": "top-pagination-max-page-number"}).text
-        return int(max_page_number)
+        max_page_number = soup.find("a", {"class": "pagination__item pagination__item--last"})
+        if max_page_number:
+            return int(max_page_number.text)
+        else:
+            return 1
     except Exception as e:
         error_msg = f"Error during reading max page number: {e}"
         raise Exception(error_msg)
 
-def scrapp_offers(driver: webdriver.Chrome, month_mapping: MonthMapping) -> pd.DataFrame:
-    """Scrapp job offers from the current page.
+def scrapp_offers(driver: webdriver.Chrome) -> pd.DataFrame:
+    """Scrape job offers from the current page.
     
     Args:
         driver: Selenium WebDriver instance
-        month_mapping: Month dictionary 
         
     Returns:
         DataFrame containing scraped job offers
@@ -135,32 +132,33 @@ def scrapp_offers(driver: webdriver.Chrome, month_mapping: MonthMapping) -> pd.D
     offers = []
     logging.info('Scraping offers...')
     
+    now = datetime.now()
     try:
-        for offer in soup.find_all("div", {"data-test": "default-offer"}):
+        offers = []
+        for offer in soup.find_all("li", class_="listing__item"):
             try:
-                title_tag = offer.find("h2", {"data-test": "offer-title"})
-                company_tag = offer.find("h3", {"data-test": "text-company-name"})
-                location_tag = offer.find("h4", {"data-test": "text-region"})
-                salary_tag = offer.find("span", {"data-test": "offer-salary"})
-                date_tag = offer.find("p", {"data-test": "text-added"})
+                title_tag = offer.find("a", class_="listing__title")
+                company_tag = offer.find("a", class_="listing__employer-name")
+                location_tag = offer.find("span", class_="listing__location-name")
+                work_model_tag = offer.find("span", class_="listing__work-model")
+                details_tag = offer.find("div", class_="listing__main-details")
+                posted_tag = offer.find("div", class_="listing__secondary-details")
+                teaser_tag = offer.find("div", class_="listing__teaser")
+                logo_tag = offer.find("img", class_="listing__logo")
 
                 # Process offer data
                 offer_data = {
                     "job_title": title_tag.text.strip() if title_tag else None,
-                    "job_url": title_tag.find("a")["href"] if title_tag and title_tag.find("a") else None,
+                    "job_id": title_tag.get("data-id") if title_tag else None,
+                    "job_url": title_tag.get("href") if title_tag else None,
                     "company": company_tag.text.strip() if company_tag else None,
-                    "company_link": company_tag.find("a")["href"] if company_tag and company_tag.find("a") else None,
                     "location": location_tag.text.strip() if location_tag else None,
-                    "salary": salary_tag.text.strip() if salary_tag else None,
-                    "date_posted": None
+                    "work_model": work_model_tag.text.strip() if work_model_tag else None,
+                    "details": details_tag.text.strip() if details_tag else None,
+                    "date_posted": posted_tag.text.strip() if posted_tag else None,
+                    "description": teaser_tag.text.strip() if teaser_tag else None,
+                    "logo_url": logo_tag.get("src") if logo_tag else None
                 }
-
-                if date_tag:
-                    raw_date = date_tag.text.replace("Opublikowana: ", "").strip()
-                    offer_data["date_posted"] = datetime.strptime(
-                        convert_date(raw_date, month_mapping), 
-                        '%d-%m-%Y'
-                    )
 
                 offers.append(offer_data)
             except Exception as e:
@@ -172,7 +170,8 @@ def scrapp_offers(driver: webdriver.Chrome, month_mapping: MonthMapping) -> pd.D
     
     logging.info(f'Successfully scraped {len(offers)} offers')
     df = pd.DataFrame(offers)
-    df['date_scraped'] = datetime.now()
+    df['date_posted'] = df['date_posted'].apply(convert_date, now=now)
+    df['date_scraped'] = now
     return df
 
 def main():
@@ -185,7 +184,6 @@ def main():
     try:
         config = load_config()
         driver = setup_driver(DRIVER_PATH)
-        month_mapping = read_month_mapping(MONTH_MAPPING_PATH)
         df_old_data, last_date_scraped = read_previous_data(OFFERS_FILE)
         
         page = 1
@@ -193,10 +191,9 @@ def main():
         df = pd.DataFrame()
 
         while True:
-            URL = f"https://www.pracuj.pl/praca/{config.KEYWORD};kw/{config.CITY};wp?rd={config.DISTANCE}&pn={page}"
+            URL = f"https://www.praca.pl/s-{config.KEYWORD}_m-{config.CITY.lower()}_{page}.html?p={config.KEYWORD}&m={config.CITY}&cr={config.DISTANCE}"
             logger.info(f"Processing page {page}")
             driver.get(URL)
-            
             if page == 1:
                 click_cookie_button(driver)
                 max_page_number = read_max_page_number(driver)
@@ -204,7 +201,7 @@ def main():
             
             time.sleep(random.randint(3, 5))
             
-            df_offers = scrapp_offers(driver, month_mapping)
+            df_offers = scrapp_offers(driver)
             if df_offers.empty:
                 logger.info("[BREAK] No offers found on current page")
                 break
@@ -228,8 +225,8 @@ def main():
         try:
             if df_old_data is not None and not df_old_data.empty:
                 df_old_data = pd.concat([df_old_data, df])
-                df_new = df[~df['job_url'].isin(df_old_data['job_url'])]
-                df = df_old_data.drop_duplicates(subset=['job_url'])
+                df_new = df[~df['job_link'].isin(df_old_data['job_link'])]
+                df = df_old_data.drop_duplicates(subset=['job_link'])
             else:
                 df_new = df
         except Exception as e:
@@ -264,8 +261,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-
 
 
 

@@ -2,10 +2,10 @@ import os
 import logging
 from datetime import datetime
 
-def set_up_logging(log_dir_path):
+def set_up_logging(log_dir_path, logs_name):
     os.makedirs(log_dir_path, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = f'{log_dir_path}/pracuj_pl_{timestamp}.log'
+    log_file = f'{log_dir_path}/{logs_name}_{timestamp}.log'
     
     logging.basicConfig(
         level=logging.INFO,
