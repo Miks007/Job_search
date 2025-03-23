@@ -4,7 +4,8 @@ from typing import List, Tuple
 
 
 SCRIPTS_TO_RUN: List[Tuple[str, List[str]]] = [
-    ("pracuj_pl.py", []),  
+    ("pracuj_pl.py", []),
+    ("praca_pl.py", []),
     ("script2.py", ["--flag", "value"]) # Runs script2.py with "--flag value"
 ]
 
