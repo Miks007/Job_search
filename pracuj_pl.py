@@ -204,7 +204,7 @@ def main():
             
             df_offers = scrape_offers(driver, month_mapping)
             if df_offers.empty:
-                logger.info("No offers found on current page")
+                logger.info("[BREAK] No offers found on current page")
                 break
                 
             df = pd.concat([df, df_offers])
@@ -212,11 +212,11 @@ def main():
             
             # Break if we've reached the max page or if we're past the last scrape date
             if page >= max_page_number:
-                logger.info("Reached maximum page number")
+                logger.info("[BREAK] Reached maximum page number")
                 break
             
             if df_offers['date_posted'].max() < last_date_scraped:
-                logger.info("Reached previously scraped offers")
+                logger.info("[BREAK] Reached previously scraped offers")
                 break
                 
             page += 1
